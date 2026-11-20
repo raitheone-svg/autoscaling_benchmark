@@ -8,7 +8,7 @@ data:
   max_services: 50
   n_services: 40
   duration_hours: 12
-  provenance: REAL:Alibaba-microservices-v2022-MSMetrics
+  provenance: SYNTHETIC:seeded-workload
 features:
   window_seconds: 600.0
   horizon_seconds: 180.0
