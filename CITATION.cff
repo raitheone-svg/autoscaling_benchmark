@@ -4,5 +4,7 @@ title: "A Reproducible Benchmark of Proactive Autoscaling & Workload-Prediction 
 authors:
   - family-names: "Rai"
     given-names: "Akhilesh"
+  - family-names: "Bandopadhyay"
+    given-names: "Sarthak Saptarshi"
 date-released: 2026-11-20
 url: "https://github.com/raitheone-svg/autoscaling_benchmark"
