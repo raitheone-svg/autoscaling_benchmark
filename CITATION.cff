@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use this benchmark, please cite it."
 title: "A Reproducible Benchmark of Proactive Autoscaling & Workload-Prediction Methods on Production Microservice Traces"
 authors:
-  - family-names: "[Your last name]"
-    given-names: "[Your first name]"
+  - family-names: "Rai"
+    given-names: "Akhilesh"
 date-released: 2026-11-20
 url: "https://github.com/raitheone-svg/autoscaling_benchmark"
