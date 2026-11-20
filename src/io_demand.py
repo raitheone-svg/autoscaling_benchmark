@@ -51,11 +51,27 @@ def _load_real(cfg):
         raise FileNotFoundError(
             f"No MSMetrics/MSResource CSV under {dd}. Extract the downloaded "
             "MSMetrics .tar.gz into data/ (see README).")
-    # pass 1: busiest services by peak aggregate CPU
+    # --- prospective service selection (no leakage): choose the cohort using
+    # ONLY the training period, defined by a global timestamp cutoff, so the
+    # busiest-N selection cannot use test-period activity. ---
+    vf = cfg["split"]["val_fraction"]; tf = cfg["split"]["test_fraction"]
+    train_frac = 1.0 - vf - tf
+    # pass 0: global max t_step -> training cutoff
+    tmax = 0
+    for p in files:
+        for ch in _iter(p, MSRES_COLS):
+            m = int((ch["timestamp"] / 1000.0 / dt).max())
+            if m > tmax:
+                tmax = m
+    train_cutoff = int(train_frac * tmax)
+    # pass 1: busiest services by peak aggregate CPU WITHIN the training period
     peak = {}
     for p in files:
         for ch in _iter(p, MSRES_COLS):
             ch = ch.assign(t_step=(ch["timestamp"] / 1000.0 / dt).astype(int))
+            ch = ch[ch["t_step"] < train_cutoff]
+            if not len(ch):
+                continue
             s = ch.groupby(["msname", "t_step"])["cpu"].sum().groupby("msname").max()
             for sv, v in s.items():
                 if v > peak.get(sv, -1.0):

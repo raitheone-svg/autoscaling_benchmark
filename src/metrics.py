@@ -36,16 +36,38 @@ def provision_point(y, yhat, headroom, svc, tstep, deadband):
                 cost=round(cost, 4), actions=round(_actions(c, svc, tstep, deadband), 2))
 
 
-def evaluate(bundle, forecasts, te, cfg):
-    y = bundle["y"][te]
-    svc = bundle["svc"][te]
-    tstep = bundle["meta"]["t_step"].to_numpy()[te]
-    deadband = cfg["provision"]["deadband"]
+def _curve(bundle, yhat_all, mask, cfg):
+    y = bundle["y"][mask]; svc = bundle["svc"][mask]
+    tstep = bundle["meta"]["t_step"].to_numpy()[mask]
+    db = cfg["provision"]["deadband"]
+    return [provision_point(y, yhat_all[mask], h, svc, tstep, db)
+            for h in cfg["provision"]["headrooms"]]
+
+
+def evaluate(bundle, forecasts, va, te, cfg, slo_target=0.05):
+    """Validation-frozen protocol: the operating headroom is chosen on the
+    VALIDATION split (cheapest headroom achieving the SLO target there), frozen,
+    and then the TEST cost and achieved violation at that headroom are reported.
+    The full test curve is also returned but is a RETROSPECTIVE frontier."""
+    tmeta = bundle["meta"]["t_step"].to_numpy()
     results = {}
     for name, yhat_all in forecasts.items():
-        yhat = yhat_all[te]
-        acc = accuracy(y, yhat)
-        curve = [provision_point(y, yhat, h, svc, tstep, deadband)
-                 for h in cfg["provision"]["headrooms"]]
-        results[name] = dict(accuracy=acc, pareto=curve)
+        acc = accuracy(bundle["y"][te], yhat_all[te])
+        test_curve = _curve(bundle, yhat_all, te, cfg)
+        val_curve = _curve(bundle, yhat_all, va, cfg)
+        # freeze headroom on validation
+        feas = [p for p in val_curve if p["slo"] <= slo_target]
+        chosen = (min(feas, key=lambda p: p["cost"]) if feas
+                  else min(val_curve, key=lambda p: p["slo"]))
+        h = chosen["headroom"]
+        test_at = next(p for p in test_curve if p["headroom"] == h)
+        results[name] = dict(
+            accuracy=acc,
+            frozen_headroom=h,
+            frozen_val_slo=chosen["slo"],
+            test_cost=test_at["cost"],
+            test_slo=test_at["slo"],
+            test_overprov_pct=test_at["overprov_pct"],
+            pareto_test=test_curve,       # retrospective frontier (figure only)
+            pareto_val=val_curve)
     return results
