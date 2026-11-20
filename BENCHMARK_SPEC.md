@@ -1,63 +1,79 @@
 # Project Spec — A Reproducible Benchmark of Proactive Autoscaling & Workload-Prediction Methods on Production Microservice Traces
 
-## What this is (and why it fits)
-A **benchmark / reproducibility study**, not a novel-algorithm paper. Its value comes from rigor, fairness, and a reusable open artifact — so it does **not** depend on out-inventing DeepScaler/Madu. This is the lowest-risk honest path to a real publication, and it produces two assets at once:
-- an **authored scholarly article** (EB-1A criterion 6), and
-- an **open, reusable benchmark artifact** that, if adopted/cited, supports *original contribution of significance* (criterion 5).
-
-(An immigration attorney should confirm your criteria mix — this is the technical plan, not legal advice.)
+This is a **benchmark / reproducibility study**, not a novel-algorithm proposal.
+Its contribution is a fair, reproducible comparison of *existing* methods on a
+public production trace, under one protocol, with an open artifact. Scope below
+describes **what this repository implements today**; aspirational extensions are
+listed separately under *Planned / future work*.
 
 ## One-line statement
-*We build an open, reproducible harness that replays the public Alibaba microservice trace and fairly compares representative autoscaling and workload-prediction methods under a single protocol, reporting which methods win under which conditions and the SLO–cost trade-offs they imply.*
+We replay the public Alibaba microservice trace and compare representative
+autoscaling / workload-prediction methods under a single protocol, reporting the
+**SLO-violation vs. cost** trade-off and which methods are efficient at 60 s
+resolution.
 
-## Why it's achievable and honest
-- Runs on **real, free data** you already have (Alibaba v2022; Google 2011 CC-BY optional as a second trace).
-- **No novelty claim to defend** — the contribution is the fair comparison + the artifact + the findings.
-- Reuses ~80% of what we already built (loader, chunked reader, leakage-safe blocked split, replay + metrics).
-- Demand forecasting is a *forecastable* problem at 60 s resolution — results will be clean and positive.
+## The benchmark (implemented)
+**Task:** per microservice, forecast near-future CPU demand, provision capacity
+to the forecast under a **scaling delay**, and measure outcomes against a
+reactive baseline — all under one protocol.
 
-## Data (real, unlicensed)
-Alibaba **cluster-trace-microservices-v2022** (public OSS, free):
-- `MSRTMCR` — per-microservice **call rate (demand)** + **response time (SLO signal)**, 60 s.
-- `MSMetrics` — per-container CPU/memory (already downloaded).
-- `MSCallGraph` — dependency edges (only needed if we include a graph-informed method).
-Optional: **Google 2011** (CC-BY) as a second, graph-free trace for generality.
+**Methods compared (all pre-existing; this repo implements and benchmarks them):**
+- **Reactive (HPA-style)** — provisions to the last observed demand under a
+  scaling delay of H steps (the industry-default baseline).
+- **Moving average** — mean of the recent window.
+- **Holt (double exponential smoothing)** — trend-aware extrapolation.
+- **GBDT** — gradient-boosted regression on window features.
+- **LSTM** — recurrent network over the demand window (optional; needs PyTorch).
 
-## The benchmark
-**Task:** per microservice, forecast near-future demand (call rate), drive a proactive provisioning policy, and measure outcomes against a reactive baseline — all under one protocol.
+**Metrics (implemented, on the test split):**
+- Forecast accuracy: **MAE, RMSE, sMAPE**.
+- Autoscaling outcome: **SLO-violation rate** (under-provision), **over-provisioning %**
+  (waste), **scaling-action count**, a **cost proxy** (mean provisioned capacity).
+- The **SLO–cost Pareto frontier**, swept over a provisioning-headroom grid.
 
-**Methods compared (all existing, cited):**
-- Reactive: Kubernetes-HPA-style threshold (the industry default).
-- Naive: last-value / moving-average persistence.
-- Classical forecasters: ARIMA, Holt-Winters / Prophet.
-- ML forecasters: GBDT, LSTM (and optionally a graph-informed variant as a "does the call graph help?" sub-study).
+**Protocol:** leakage-safe **chronological per-service split** with a purge gap of
+(window + horizon) at each boundary; fixed seed; the same features and headroom
+sweep for every method; results on a held-out test split.
 
-**Metrics (reported per method, with distributions):**
-- Forecast accuracy: MAE, RMSE, sMAPE; **surge recall & lead time**.
-- Autoscaling outcome: **SLO-violation rate** (under-provision), **over-provisioning %** (waste), scaling-action count, a **cost proxy**, and the **SLO–cost Pareto frontier**.
-- Breakdowns by microservice characteristics (call rate, burstiness, call-graph position).
+## Findings (from the real-trace run in `outputs/`)
+At 60 s resolution on the Alibaba trace: lightweight proactive forecasting
+(moving average, GBDT, LSTM) provisions modestly cheaper than reactive HPA at a
+fixed SLO, while a **simple moving average sits on the efficient frontier** — the
+deep model does not buy cheaper provisioning, only marginally better worst-case
+SLO. Practical takeaway: at this timescale, prefer a simple forecaster over a
+heavyweight ML autoscaler. (Effect sizes are small; see Limitations.)
 
-**Protocol:** leakage-safe blocked temporal split (reused); many microservices; fixed seeds/config; fair hyperparameter tuning for every method; medians + variability reported.
+## Data
+Alibaba **cluster-trace-microservices-v2022** (`MSMetrics` table), obtained from
+the official source under its terms; **not redistributed here**. See the README
+for download and citation.
 
-## Deliverables
-1. The **paper** (benchmark study) in the target venue's format.
-2. An **open-source artifact**: code, configs, processed features, one-command reproduction.
-3. Tables + figures: accuracy, Pareto frontier, per-characteristic breakdowns.
+## Limitations (stated honestly)
+- The SLO signal is a **CPU-capacity proxy** (under-provision = capacity < demand),
+  not measured latency.
+- Results here use a limited slice (first ~2 h, 50 busiest services); effect
+  sizes are small and should be firmed up with more hours/services.
+- 60 s sampling: fast, sub-minute dynamics are not observed.
 
-## Honest expected findings
-Proactive forecasting beats reactive HPA on SLO violations at equal or lower cost for the predictable (high-rate, low-burstiness) services; the gap shrinks for bursty/low-rate services; classical forecasters are competitive with ML at 60 s resolution (a useful, slightly contrarian finding reviewers like). If the graph sub-study shows the call graph helps only marginally, we report that — it's still a finding.
+## Planned / future work (NOT yet in this repo)
+- Additional baselines: **ARIMA**, **Prophet**.
+- **Response-time SLOs** from the `MSRTMCR` table (real latency, not a CPU proxy).
+- A **call-graph sub-study**: does `MSCallGraph` fan-out improve forecasting?
+- Extra metrics: **surge recall & lead time**, per-characteristic breakdowns
+  (call rate, burstiness, call-graph position).
+- Scaling to more hours and services; a second trace (Google 2011, CC-BY).
+
+## Related work (benchmarked / positioned against)
+- S. Luo et al., "The Power of Prediction: Microservice Auto Scaling via Workload
+  Learning" (Madu), ACM SoCC, 2022.
+- S. Luo et al., "Characterizing Microservice Dependency and Performance: Alibaba
+  Trace Analysis," ACM SoCC, 2021. *(dataset)*
+- C. Meng et al., "DeepScaler: Holistic Autoscaling for Microservices Based on
+  Spatiotemporal GNN with Adaptive Graph Learning," IEEE/ACM ASE, 2023.
+- H. X. Nguyen et al., "Graph-PHPA: Graph-based Proactive Horizontal Pod
+  Autoscaling for Microservices using LSTM-GNN," IEEE CloudNet, 2022.
+- K. Rzadca et al., "Autopilot: Workload Autoscaling at Google Scale," EuroSys, 2020.
 
 ## Target venues (benchmark/repro-friendly)
-- **ICPE** (ACM/SPEC Performance Engineering) — strong benchmark & artifact-evaluation culture. Best fit.
-- **MASCOTS**, **IEEE CLOUD**, **CCGrid**, or a **workshop** for a faster first publication.
-
-## Reuse vs. new work
-- **Reuse:** trace download tooling, chunked CSV loader, blocked split, replay harness, metrics/reporting.
-- **New:** load `MSRTMCR` (demand+RT), define the SLO signal, implement the baseline method suite, implement the provisioning policy + cost model, run the comparison, package the artifact.
-
-## Implementation plan
-1. Download `MSRTMCR` (+ `MSCallGraph` only if we do the graph sub-study) — same free mechanism as before.
-2. Build the demand + SLO data layer and the provisioning/cost model.
-3. Implement the method suite (reactive, persistence, ARIMA/Holt-Winters, GBDT, LSTM).
-4. Run the benchmark; generate the Pareto frontier + breakdowns.
-5. Package the open artifact; write the paper.
+ICPE (best fit), MASCOTS, IEEE CLOUD, CCGrid, or a workshop for a faster first
+publication.
